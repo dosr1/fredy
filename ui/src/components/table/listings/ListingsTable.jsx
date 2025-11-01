@@ -467,7 +467,6 @@ export default function ListingsTable() {
       async function load() {
         try {
           const res = await xhrPost('/api/listings/raw', { listingId });
-          // xhrPost returns { status, json } on success
           const data = Array.isArray(res) ? res : res?.json || [];
           if (Array.isArray(data) && data.length > 0) {
             const urls = data
@@ -481,7 +480,6 @@ export default function ListingsTable() {
               })
               .filter(Boolean)
               .slice(0, MAX);
-
             if (urls.length > 0) {
               if (mounted) setPics(urls);
               return;
@@ -489,8 +487,7 @@ export default function ListingsTable() {
           }
         } catch (e) {
           // ignore and fall back
-          // eslint-disable-next-line no-console
-          console.debug('RawImages: fetch from DB failed', e);
+          console.warn('Failed to load raw images from DB, falling back', e);
         }
 
         // fallback to record data if DB fetch failed or returned nothing
@@ -510,13 +507,7 @@ export default function ListingsTable() {
       return (
         <div className="listingsTable__additionalpictures">
           {pics.map((pic, idx) => (
-            <a
-              key={idx}
-              //href={pic}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="listingsTable__additionalpictures__link"
-            >
+            <a key={idx} target="_blank" rel="noopener noreferrer" className="listingsTable__additionalpictures__link">
               <Image
                 src={pic}
                 width={80}
@@ -530,8 +521,7 @@ export default function ListingsTable() {
         </div>
       );
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('RawImages render failed', e);
+      console.warn('Failed to render RawImages', e);
       return null;
     }
   }
