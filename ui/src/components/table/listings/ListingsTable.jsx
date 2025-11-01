@@ -235,10 +235,10 @@ export default function ListingsTable() {
           </Descriptions>
           <b>{record.title}</b>
           <p>{record.description == null ? 'No description available' : record.description}</p>
-          {/* Render additional pictures as thumbnails if available.
-              Protect against malformed values by normalizing `additionalpictures` to an array
-              of valid URL strings and limiting the number of thumbnails. */}
-          {renderAdditionalPictures(record.additionalpictures)}
+          {/* Render additional pictures: try DB-backed raw images first, fallback to record.additionalpictures */}
+          <RawImages listingId={record.id} fallback={record.additionalpictures} />
+          {/* Render additional documents (PDFs etc.) if present on the record */}
+          {renderAdditionalDocuments(record.additionaldocuments)}
         </div>
       </div>
     );
@@ -247,7 +247,7 @@ export default function ListingsTable() {
   // Helper: normalize additionalpictures input to an array of valid URL strings
   // Accepts: null/undefined, string (single url), array of mixed values
   // Returns: array (possibly empty) with at most 8 items
-  function normalizeAdditionalPictures(input, max = 8) {
+  function normalizeAdditionalPictures(input, max = 16) {
     try {
       if (!input) return [];
 
@@ -258,7 +258,25 @@ export default function ListingsTable() {
 
       // If it's an array-like, filter for strings
       if (Array.isArray(input)) {
-        const urls = input.map((v) => (typeof v === 'string' ? v.trim() : null)).filter((v) => v && v.length > 0);
+        const urls = input
+          .map((v) => {
+            if (typeof v === 'string') return v.trim();
+            if (v && typeof v === 'object') {
+              // common fields that may contain the link
+              if (typeof v.url === 'string' && v.url.trim()) return v.url.trim();
+              if (typeof v.link === 'string' && v.link.trim()) return v.link.trim();
+              // sometimes the object may be nested like { reference: { url: '...' } }
+              if (
+                v.reference &&
+                typeof v.reference === 'object' &&
+                typeof v.reference.url === 'string' &&
+                v.reference.url.trim()
+              )
+                return v.reference.url.trim();
+            }
+            return null;
+          })
+          .filter((v) => v && v.length > 0);
 
         // dedupe while preserving order
         const seen = new Set();
@@ -290,8 +308,202 @@ export default function ListingsTable() {
     }
   }
 
-  function renderAdditionalPictures(additionalpictures) {
-    const pics = normalizeAdditionalPictures(additionalpictures, 8);
+  // note: simplified - we show the raw additionaldocuments value in the UI
+
+  // extract URLs from various shapes of additionaldocuments (string, array, object)
+  function extractDocumentUrls(input, max = 16) {
+    try {
+      if (!input) return [];
+
+      const candidates = [];
+
+      const pushIfString = (v) => {
+        if (typeof v === 'string' && v.trim()) candidates.push(v.trim());
+      };
+
+      if (typeof input === 'string') {
+        // if it's JSON encoded, try to parse
+        const s = input.trim();
+        if ((s.startsWith('[') || s.startsWith('{')) && s.includes('http')) {
+          try {
+            const parsed = JSON.parse(s);
+            return extractDocumentUrls(parsed, max);
+          } catch (e) {
+            // fall through
+            console.warn('Failed to parse JSON', e);
+          }
+        }
+        pushIfString(s);
+      }
+
+      if (Array.isArray(input)) {
+        for (const v of input) {
+          if (!v) continue;
+          if (typeof v === 'string') pushIfString(v);
+          else if (typeof v === 'object') {
+            if (typeof v.url === 'string') pushIfString(v.url);
+            else if (typeof v.link === 'string') pushIfString(v.link);
+            else if (v.reference && typeof v.reference === 'object') {
+              if (typeof v.reference.url === 'string') pushIfString(v.reference.url);
+              else if (typeof v.reference.link === 'string') pushIfString(v.reference.link);
+            }
+          }
+        }
+      }
+
+      if (typeof input === 'object' && !Array.isArray(input)) {
+        // inspect object values for urls
+        for (const v of Object.values(input)) {
+          if (!v) continue;
+          if (typeof v === 'string') pushIfString(v);
+          else if (typeof v === 'object') {
+            if (typeof v.url === 'string') pushIfString(v.url);
+            else if (typeof v.link === 'string') pushIfString(v.link);
+            else if (v.reference && typeof v.reference === 'object') {
+              if (typeof v.reference.url === 'string') pushIfString(v.reference.url);
+              else if (typeof v.reference.link === 'string') pushIfString(v.reference.link);
+            }
+          }
+        }
+      }
+
+      // dedupe & limit
+      const seen = new Set();
+      const out = [];
+      for (const u of candidates) {
+        if (!u) continue;
+        if (!seen.has(u)) {
+          seen.add(u);
+          out.push(u);
+        }
+        if (out.length >= max) break;
+      }
+      return out;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('extractDocumentUrls failed', err);
+      return [];
+    }
+  }
+
+  function getFilenameFromUrl(u) {
+    try {
+      if (!u || typeof u !== 'string') return 'Document';
+      const parts = u.split('/').filter(Boolean);
+      const last = parts[parts.length - 1] || u;
+      try {
+        return decodeURIComponent(last.split('?')[0]);
+      } catch (e) {
+        console.warn('Failed to decode URI component', e);
+        return last.split('?')[0];
+      }
+    } catch (e) {
+      console.warn('Failed to decode URI component', e);
+      return 'Document';
+    }
+  }
+
+  function renderAdditionalDocuments(additionaldocuments) {
+    try {
+      if (additionaldocuments == null) return null;
+
+      const urls = extractDocumentUrls(additionaldocuments, 32);
+      if (urls.length === 0) {
+        // fallback: show raw content for visibility
+        return (
+          <div className="listingsTable__additionaldocuments" style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--semi-color-text-2)' }}>
+              additional documents here:
+            </div>
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>
+              {typeof additionaldocuments === 'string'
+                ? additionaldocuments
+                : JSON.stringify(additionaldocuments, null, 2)}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="listingsTable__additionaldocuments" style={{ marginTop: 8 }}>
+          <div style={{ marginBottom: 6, fontSize: 13, color: 'var(--semi-color-text-2)' }}>
+            additional documents here:
+          </div>
+          {urls.map((u, idx) => (
+            <div key={idx} style={{ marginBottom: 6 }}>
+              <a
+                href={u}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="listingsTable__additionaldocuments__link"
+              >
+                {getFilenameFromUrl(u)}
+              </a>
+            </div>
+          ))}
+        </div>
+      );
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('renderAdditionalDocuments failed', e);
+      return null;
+    }
+  }
+
+  /**
+   * Component: RawImages
+   * - Tries to fetch image entries for a listing from the server (listings_raw).
+   * - Calls POST /api/listings/raw with { listingId } and expects { status, json } response
+   *   where json is an array of rows: { id, link?, mime_type?, rawdata? } and rawdata is base64
+   * - If DB data is present, uses data URLs built from base64 rawdata (preferred). If not,
+   *   falls back to the existing `fallback` prop (record.additionalpictures).
+   */
+  function RawImages({ listingId, fallback }) {
+    const [pics, setPics] = useState(null);
+    const MAX = 16;
+
+    useEffect(() => {
+      let mounted = true;
+      async function load() {
+        try {
+          const res = await xhrPost('/api/listings/raw', { listingId });
+          // xhrPost returns { status, json } on success
+          const data = Array.isArray(res) ? res : res?.json || [];
+          if (Array.isArray(data) && data.length > 0) {
+            const urls = data
+              .map((r) => {
+                if (r.rawdata) {
+                  const mime = r.mime_type || 'application/octet-stream';
+                  return `data:${mime};base64,${r.rawdata}`;
+                }
+                if (r.link) return r.link;
+                return null;
+              })
+              .filter(Boolean)
+              .slice(0, MAX);
+
+            if (urls.length > 0) {
+              if (mounted) setPics(urls);
+              return;
+            }
+          }
+        } catch (e) {
+          // ignore and fall back
+          // eslint-disable-next-line no-console
+          console.debug('RawImages: fetch from DB failed', e);
+        }
+
+        // fallback to record data if DB fetch failed or returned nothing
+        const fallbackUrls = normalizeAdditionalPictures(fallback, MAX);
+        if (mounted) setPics(fallbackUrls);
+      }
+
+      load();
+      return () => {
+        mounted = false;
+      };
+    }, [listingId, fallback]);
+
     if (!pics || pics.length === 0) return null;
 
     try {
@@ -300,7 +512,7 @@ export default function ListingsTable() {
           {pics.map((pic, idx) => (
             <a
               key={idx}
-              //href={typeof pic === 'string' && isValidUrl(pic) ? pic : '#'}
+              //href={pic}
               target="_blank"
               rel="noopener noreferrer"
               className="listingsTable__additionalpictures__link"
@@ -318,9 +530,8 @@ export default function ListingsTable() {
         </div>
       );
     } catch (e) {
-      // In unlikely case rendering fails, avoid crashing entire page
       // eslint-disable-next-line no-console
-      console.error('renderAdditionalPictures failed', e);
+      console.error('RawImages render failed', e);
       return null;
     }
   }
