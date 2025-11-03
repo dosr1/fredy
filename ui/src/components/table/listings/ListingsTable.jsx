@@ -140,6 +140,13 @@ const columns = [
     render: (text) => text + ' €',
   },
   {
+    title: 'Size',
+    width: 100,
+    dataIndex: 'size',
+    sorter: true,
+    render: (text) => text + ' m²',
+  },
+  {
     title: 'Address',
     width: 150,
     dataIndex: 'address',
