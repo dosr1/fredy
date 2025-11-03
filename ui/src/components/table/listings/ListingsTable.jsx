@@ -452,7 +452,6 @@ export default function ListingsTable() {
 
   /**
    * Component: RawImages
-   * - Tries to fetch image entries for a listing from the server (listings_raw).
    * - Calls POST /api/listings/raw with { listingId } and expects { status, json } response
    *   where json is an array of rows: { id, link?, mime_type?, rawdata? } and rawdata is base64
    * - If DB data is present, uses data URLs built from base64 rawdata (preferred). If not,
