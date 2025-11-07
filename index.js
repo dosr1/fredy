@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns/promises';
 import { checkIfConfigIsAccessible, config, getProviders, refreshConfig } from './lib/utils.js';
 import * as similarityCache from './lib/services/similarity-check/similarityCache.js';
 import * as jobStorage from './lib/services/storage/jobStorage.js';
@@ -48,7 +49,16 @@ if (config.demoMode) {
   cleanupDemoAtMidnight();
 }
 
-logger.info(`Started Fredy successfully. Ui can be accessed via http://localhost:${config.port}`);
+logger.info(`Started Fredy 0.1a successfully. Ui can be accessed via http://localhost:${config.port}`);
+
+// Check internet connection
+try {
+  await dns.lookup('google.com');
+  logger.info('Internet connection successfully verified.');
+} catch (error) {
+  logger.error(`No internet connection. Please check your network connection. ${error}`);
+  process.exit(1);
+}
 
 ensureAdminUserExists();
 ensureDemoUserExists();
