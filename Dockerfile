@@ -5,8 +5,10 @@ WORKDIR /fredy
 # Install Chromium and curl without extra recommended packages and clean apt cache
 # curl is needed for the health check
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends chromium curl \
+  && apt-get install -y --no-install-recommends chromium curl ca-certificates \
+  && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -24,15 +26,17 @@ COPY . .
 RUN yarn build:frontend
 
 # Prepare runtime directories and symlinks for data and config
-RUN mkdir -p /db /conf \
-  && chown 1000:1000 /db /conf \
-  && chmod 777 /db /conf \
+RUN mkdir -p /db /conf /data \
+  && chown 1000:1000 /db /conf /data \
+  && chmod 777 /db /conf /data \
   && ln -s /db /fredy/db \
-  && ln -s /conf /fredy/conf
+  && ln -s /conf /fredy/conf \
+  && ln -s /data /fredy/data
 
 EXPOSE 9998
 VOLUME /db
 VOLUME /conf
+VOLUME /data
 
 # Start application using PM2 runtime
 CMD ["pm2-runtime", "index.js"]
