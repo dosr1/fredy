@@ -246,6 +246,7 @@ export default function ListingsTable() {
           <RawImages listingId={record.id} fallback={record.additionalpictures} />
           {/* Render additional documents (PDFs etc.) if present on the record */}
           {renderAdditionalDocuments(record.additionaldocuments)}
+          <div>Listing ID: {record.id}</div>
         </div>
       </div>
     );
@@ -465,7 +466,7 @@ export default function ListingsTable() {
    *   falls back to the existing `fallback` prop (record.additionalpictures).
    */
   function RawImages({ listingId, fallback }) {
-    const [pics, setPics] = useState(null);
+    const [pics, setPics] = useState([]); // Initialize as an empty array
     const MAX = 16;
 
     useEffect(() => {
@@ -474,26 +475,29 @@ export default function ListingsTable() {
         try {
           const res = await xhrPost('/api/listings/raw', { listingId });
           const data = Array.isArray(res) ? res : res?.json || [];
-          if (Array.isArray(data) && data.length > 0) {
-            const urls = data
-              .map((r) => {
-                if (r.rawdata) {
-                  const mime = r.mime_type || 'application/octet-stream';
-                  return `data:${mime};base64,${r.rawdata}`;
-                }
-                if (r.link) return r.link;
-                return null;
-              })
-              .filter(Boolean)
-              .slice(0, MAX);
-            if (urls.length > 0) {
-              if (mounted) setPics(urls);
-              return;
-            }
+
+          const urls = data
+            .map((r) => {
+              if (r.base64) {
+                const mime = r.mime_type || 'application/octet-stream';
+                const url = `data:${mime};base64,${r.base64}`;
+                return url;
+              }
+              if (r.link) {
+                return r.link;
+              }
+              console.warn(`Invalid entry in data:`, r);
+              return null;
+            })
+            .filter(Boolean)
+            .slice(0, MAX);
+
+          if (urls.length > 0) {
+            if (mounted) setPics(urls);
+            return;
           }
         } catch (e) {
-          // ignore and fall back
-          console.warn('Failed to load raw images from DB, falling back', e);
+          console.warn('RawImages: Failed to load raw images from DB, falling back', e);
         }
 
         // fallback to record data if DB fetch failed or returned nothing
@@ -506,8 +510,6 @@ export default function ListingsTable() {
         mounted = false;
       };
     }, [listingId, fallback]);
-
-    if (!pics || pics.length === 0) return null;
 
     try {
       return (
@@ -527,7 +529,7 @@ export default function ListingsTable() {
         </div>
       );
     } catch (e) {
-      console.warn('Failed to render RawImages', e);
+      console.warn('RawImages: Failed to render RawImages', e);
       return null;
     }
   }
